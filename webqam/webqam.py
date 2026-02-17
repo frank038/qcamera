@@ -1,6 +1,6 @@
 #!/usr/bin/python3
 
-# version 0.2
+# version 0.3
 
 from PyQt6.QtCore import *
 from PyQt6.QtWidgets import *
@@ -32,6 +32,7 @@ class firstMessage(QWidget):
         self.show()
 
 APP_TITLE = "Webqam"
+USE_OVERLAY1 = 1
 OVERLAY1_HEIGHT = 30
 
 curr_dir = os.getcwd()
@@ -60,6 +61,7 @@ except:
     except:
         fm = firstMessage("Error", "The file winsize.cfg cannot be read/created.")
         sys.exit(app.exec())
+
 
 class MainWindow(QMainWindow):
     def __init__(self, *args, **kwargs):
@@ -95,19 +97,19 @@ class MainWindow(QMainWindow):
         self.NEW_HEIGHT = -1
         if len(sys.argv) > 1:
             if sys.argv[1] == "--help":
-                print("Usage: qcamera.py WIDTH HEIGHT\n")
-                MyDialog("Error", "Usage: qcamera.py WIDTH HEIGHT\n", self)
+                print("Usage: webqam.py WIDTH HEIGHT\n")
+                MyDialog("Error", "Usage: webqam.py WIDTH HEIGHT\n", self)
             else:
                 try:
                     if not isinstance(int(sys.argv[1]), int) or not isinstance(int(sys.argv[2]), int):
-                        print("Usage: qcamera.py WIDTH HEIGHT\n")
-                        MyDialog("Error", "Usage: qcamera.py WIDTH HEIGHT\n", self)
+                        print("Usage: webqam.py WIDTH HEIGHT\n")
+                        MyDialog("Error", "Usage: webqam.py WIDTH HEIGHT\n", self)
                     else:
                         self.NEW_WIDTH = int(sys.argv[1])
                         self.NEW_HEIGHT = int(sys.argv[2])
                 except:
-                    print("Usage: qcamera.py WIDTH HEIGHT\n")
-                    MyDialog("Error", "Usage: qcamera.py WIDTH HEIGHT\n", self)
+                    print("Usage: webqam.py WIDTH HEIGHT\n")
+                    MyDialog("Error", "Usage: webqam.py WIDTH HEIGHT\n", self)
         #
         self.md = QMediaDevices(self)
         self.mc = QMediaCaptureSession()
@@ -228,8 +230,9 @@ class MainWindow(QMainWindow):
         self.audio_output = QAudioOutput()
         self.player.setAudioOutput(self.audio_output)
         ############ bottom overlay
-        self.on_set_overlay1(self)
-    
+        if USE_OVERLAY1 == 1:
+            self.on_set_overlay1(self)
+        
     def on_actd(self):
         self._delay = self.sender()._d
         
@@ -251,25 +254,28 @@ class MainWindow(QMainWindow):
             self._menu.popup(self.mapToGlobal(event.pos()))
             event.accept()
         elif event.button() ==  Qt.MouseButton.LeftButton:
-            # each position is value/self.pixel_ratio
-            if self.overlay1.isVisible():
-                self.aa = 0
-                self._t = QTimer()
-                self._t.setInterval(10)
-                self._t.timeout.connect(self.on_timer_down)
-                self._t.start()
-                event.accept()
-            else:
-                self.aa = 0
-                self._t = QTimer()
-                self._t.setInterval(10)
-                self._t.timeout.connect(self.on_timer_up)
-                self._t.start()
-                event.accept()
+            if USE_OVERLAY1 == 1:
+                # each position is value/self.pixel_ratio
+                if self.overlay1.isVisible():
+                    self.aa = 0
+                    self._t = QTimer()
+                    self._t.setInterval(10)
+                    self._t.timeout.connect(self.on_timer_down)
+                    self._t.start()
+                    event.accept()
+                else:
+                    self.aa = 0
+                    self._t = QTimer()
+                    self._t.setInterval(10)
+                    self._t.timeout.connect(self.on_timer_up)
+                    self._t.start()
+                    event.accept()
         else:
             super().mousePressEvent(event)
     
     def on_timer_up(self):
+        if self.list_cams == []:
+            return
         self.overlay1.show()
         self.aa += 1
         _step = int( self.overlay1.height()/self._r )
@@ -397,7 +403,8 @@ class MainWindow(QMainWindow):
         #
         list_formats = []
         #
-        # [[cam,format,resolution,max_framerate,min_framerate]]
+        # [[cam,format,resolution,max_framerate,min_framerate], ...]
+        # self.camera_data
         for _d in self.camera_data:
             if _d[0] == _cam:
                 if list_cam_type_tmp == [] or _d[1] == list_cam_type_tmp[0][0]:
@@ -453,6 +460,8 @@ class MainWindow(QMainWindow):
         for vf in vvf:
             if str(vf.pixelFormat()) == _sender_data[0]:
                 if vf.resolution() == _sender_data[1]:
+                    # _w = _sender_data[1].width()
+                    # _h = _sender_data[1].height()
                     self.cam.setCameraFormat(vf)
                     self.on_act2(vf)
                     break
@@ -576,9 +585,19 @@ class MainWindow(QMainWindow):
                 cam.setCameraDevice(el)
                 if not cam in self.list_cams:
                     self.list_cams.append(cam)
+                    #
+                    vvf = el.videoFormats()
+                    for vf in vvf:
+                        _f = str(vf.pixelFormat())
+                        _r = vf.resolution()
+                        _mf = vf.minFrameRate()
+                        _Mf = vf.maxFrameRate()
+                        self.camera_data.append([cam,_f,_r,_mf,_Mf])
+                    #
                     self.on_pop_menu_camera(cam)
                 else:
                     del cam
+        #
         # remove a no more available camera
         for _c in self.list_cams[:]:
             el = _c.cameraDevice()
@@ -592,12 +611,14 @@ class MainWindow(QMainWindow):
                             self.sub_menu1.removeAction(ell[1])
                             if _c.isActive():
                                 _c.stop()
-                            # del _c
+            # remove the old entries
+            for i, ell in enumerate(self.camera_data[:]):
+                if _c == ell[0]:
+                    self.camera_data.remove(ell)
         #
         if self.cam == None or self.cam.cameraDevice().isNull():
             self.cam = cam
             if len(self.list_cams) == 1:
-                # self.cam.start()
                 ret_cam,ret_mic = self.get_permissions()
                 if ret_cam:
                     ret = self.find_best_resolution()
@@ -612,6 +633,16 @@ class MainWindow(QMainWindow):
         else:
             if self.cam.cameraDevice().isNull() or self.list_cams == []:
                 self.cam = None
+        #
+        if self.list_cams == []:
+            if self.overlay1.isVisible():
+                self.aa = 0
+                self._t = QTimer()
+                self._t.setInterval(10)
+                self._t.timeout.connect(self.on_timer_down)
+                self._t.start()
+                self.aa = 0
+                self_t = None
     
     # toggle window titlebar
     def on_act0(self):
@@ -619,14 +650,6 @@ class MainWindow(QMainWindow):
             self.setWindowFlags( self.windowFlags() & ~Qt.WindowType.FramelessWindowHint )
         else:
             self.setWindowFlags( self.windowFlags() | Qt.WindowType.FramelessWindowHint )
-        self.show()
-        
-    # toggle stay on top
-    def on_act11(self):
-        if self.windowFlags() & Qt.WindowType.CustomizeWindowHint:
-            self.setWindowFlags( self.windowFlags() & ~Qt.WindowType.CustomizeWindowHint )
-        else:
-            self.setWindowFlags( Qt.WindowType.CustomizeWindowHint )
         self.show()
     
     # toggle stay on top
@@ -647,15 +670,10 @@ class MainWindow(QMainWindow):
     # activate a new camera/change resolution
     def on_act2(self, _data=None):
         _cam = self.sender().dev
-        # if _cam == self.cam:
-            # print("SAME CAM")
-            # return
         _isActive = _cam.isActive()
         for _c in self.list_cams:
             if _c.isActive():
                 _c.stop()
-        # if _isActive:
-            # _cam.stop()
         #
         if not _cam.cameraDevice().isNull():
             self._cam = _cam
@@ -717,13 +735,15 @@ class MainWindow(QMainWindow):
                 new_w = int(new_h * _ratio)
                 new_h = new_h
                 self.resize(int(new_w/self.pixel_ratio), int(new_h/self.pixel_ratio))
-                self.overlay1.setGeometry(0, self.height() - self.overlay1.height(), self.width(), self.overlay1.height())
+                if USE_OVERLAY1 == 1:
+                    self.overlay1.setGeometry(0, self.height() - self.overlay1.height(), self.width(), self.overlay1.height())
             else:
                 # height
                 new_w = new_w
                 new_h = int(new_w / _ratio)
                 self.resize(int(new_w/self.pixel_ratio), int(new_h/self.pixel_ratio))
-                self.overlay1.setGeometry(0, self.height() - self.overlay1.height(), self.width(), self.overlay1.height())
+                if USE_OVERLAY1 == 1:
+                    self.overlay1.setGeometry(0, self.height() - self.overlay1.height(), self.width(), self.overlay1.height())
             #
             try:
                 _w = int(new_w/self.pixel_ratio)
@@ -737,7 +757,7 @@ class MainWindow(QMainWindow):
     
     def closeEvent(self, event):
         if WINW_AT_START != WINW and WINH_AT_START != WINH:
-            self.on_write_cfg(WINW, WINH)
+            self.on_write_cfg(int(WINW/self.pixel_ratio), int(WINH/self.pixel_ratio))
         app.instance().quit()
 
 
